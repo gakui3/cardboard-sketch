@@ -6,12 +6,24 @@ import * as poly2tri from 'poly2tri';
 const canvas = document.getElementById('renderCanvas');
 const engine = new BABYLON.Engine(canvas);
 const scene = new BABYLON.Scene(engine);
-const camera = new BABYLON.FreeCamera('camera1', new BABYLON.Vector3(0, 5, -10), scene);
+// const camera = new BABYLON.FreeCamera('camera1', new BABYLON.Vector3(0, 5, -10), scene);
+const camera = new BABYLON.ArcRotateCamera(
+  'camera',
+  -1.57,
+  3.14,
+  10,
+  new BABYLON.Vector3(0, 0, -1),
+  scene
+);
 camera.setTarget(BABYLON.Vector3.Zero());
+
 let triangles = [];
 let indices = [];
 let vertices = [];
 let centroids = [];
+
+const thickness = 0.25;
+let isAnyKeyPressed = false;
 
 const debugPoints = [
   { x: -1.596416592544705, y: -2.8413638648418367, id: 0 },
@@ -38,22 +50,12 @@ const debugPoints = [
 
 // camera.attachControl(canvas, true);
 
-const light = new BABYLON.HemisphericLight('light1', new BABYLON.Vector3(0, 1, 0), scene);
+const light = new BABYLON.HemisphericLight('light1', new BABYLON.Vector3(0.2, 1, 0), scene);
 light.intensity = 0.7;
 
-const material = new BABYLON.StandardMaterial('test', scene);
-const shaderMaterial = new BABYLON.ShaderMaterial(
-  'shaderMaterial',
-  scene,
-  {
-    vertexSource: testVert,
-    fragmentSource: testFrag,
-  },
-  {
-    attributes: ['position'],
-    uniforms: ['worldViewProjection'],
-  }
-);
+//ambient light
+const ambient = new BABYLON.HemisphericLight('ambient', new BABYLON.Vector3(0.2, 1, -0.2), scene);
+ambient.intensity = 1.0;
 
 //--------------------------------------------------------------------------------------
 // utils
@@ -73,14 +75,37 @@ const isPointInsideCircle = (A, B, P) => {
   return distanceToCenter <= radius;
 };
 
-const createMesh = (vertices, indices) => {
+const createBaseMesh = (vertices, indices) => {
+  const margedVertices = [];
+  const margedIndices = [...indices];
+  const verticesLength = vertices.length / 3;
+
+  for (let i = 0; i < 2; i++) {
+    for (let k = 0; k < vertices.length; k++) {
+      const p = (k + 1) % 3 == 0 ? vertices[k] + thickness * i : vertices[k];
+      margedVertices.push(p);
+    }
+  }
+
+  for (let i = 0; i < indices.length; i++) {
+    const idx = indices[i] + verticesLength;
+    margedIndices.push(idx);
+  }
+  // console.log('margedIndices', margedIndices);
+
   const vertexData = new BABYLON.VertexData();
+  vertexData.positions = margedVertices;
+  vertexData.indices = margedIndices;
 
-  vertexData.positions = vertices;
-  vertexData.indices = indices;
+  const mesh = new BABYLON.Mesh('mesh', scene);
+  vertexData.applyToMesh(mesh, true);
 
-  vertexData.applyToMesh(new BABYLON.Mesh('mesh', scene), true);
+  const material = new BABYLON.StandardMaterial('material', scene);
+  material.backFaceCulling = false; // 両面描画を有効にする
+  mesh.material = material;
 };
+
+const createSurfaceMesh = (vertices, indices) => {};
 
 const createLine = (vertices, indices) => {
   for (let i = 0; i < indices.length; i += 3) {
@@ -175,6 +200,103 @@ const drawCentroidIds = () => {
   }
 };
 
+const createThicknessMesh = (vertices) => {
+  const mergedVertices = [];
+  const indices = [];
+
+  //頂点をpush
+  for (let i = 0; i < 2; i++) {
+    for (let k = 0; k < vertices.length; k++) {
+      if ((k + 1) % 3 === 0) {
+        mergedVertices.push(vertices[k] + thickness * i);
+      } else {
+        mergedVertices.push(vertices[k]);
+      }
+      if (k === vertices.length - 1) {
+        mergedVertices.push(vertices[0]);
+        mergedVertices.push(vertices[1]);
+        mergedVertices.push(vertices[2] + thickness * i);
+        break;
+      }
+    }
+  }
+
+  const verticesLength = mergedVertices.length / 2 / 3;
+
+  for (let i = 0; i < verticesLength - 1; i++) {
+    const idx0 = i;
+    const idx1 =
+      i + verticesLength + 1 >= verticesLength * 2 ? verticesLength : i + verticesLength + 1;
+    const idx2 = i + verticesLength;
+
+    console.log('idx', i, ':', idx0, idx1, idx2);
+    indices.push(idx0, idx1, idx2);
+  }
+
+  for (let i = 0; i < verticesLength - 1; i++) {
+    const idx0 = i;
+    const idx1 = i + 1 >= verticesLength ? 0 : i + 1;
+    const idx2 =
+      i + verticesLength + 1 >= verticesLength * 2 ? verticesLength : i + verticesLength + 1;
+
+    // console.log('idx', i, ':', idx0, idx1, idx2);
+    indices.push(idx0, idx1, idx2);
+  }
+
+  //uvの設定
+  const uvs = [];
+  for (let i = 0; i < mergedVertices.length; i += 3) {
+    const idx = i / 3 < 0 ? 0 : i / 3;
+    const idxLength = mergedVertices.length / 3;
+
+    const u =
+      idx < idxLength / 2
+        ? remap(idx, 0, idxLength / 2, 0, 1)
+        : remap(idx, idxLength / 2, idxLength, 0, 1);
+    const v = idx < idxLength / 2 ? 0 : 1;
+    // console.log('uv', u, ',', v);
+    uvs.push(u);
+    uvs.push(v);
+  }
+
+  var normals = [];
+  BABYLON.VertexData.ComputeNormals(mergedVertices, indices, normals);
+
+  const vertexData = new BABYLON.VertexData();
+  vertexData.positions = mergedVertices;
+  vertexData.indices = indices;
+  vertexData.normals = normals;
+  vertexData.uvs = uvs;
+
+  const mesh = new BABYLON.Mesh('mesh', scene);
+  vertexData.applyToMesh(mesh, true);
+
+  // const material = new BABYLON.StandardMaterial('testMat', scene);
+  // material.emissiveTexture = new BABYLON.Texture('./test.png', scene);
+  // material.disableLighting = true;
+  // material.diffuseColor = new BABYLON.Color3(1, 1, 1);
+
+  const material = new BABYLON.ShaderMaterial(
+    'shaderMaterial',
+    scene,
+    {
+      vertexSource: testVert,
+      fragmentSource: testFrag,
+    },
+    {
+      attributes: ['position', 'normal', 'uv'],
+      uniforms: ['worldViewProjection'],
+    }
+  );
+
+  mesh.material = material;
+};
+
+const remap = (value, inMin, inMax, outMin, outMax) => {
+  // 入力値が入力範囲のどの位置にあるかを計算し、出力範囲にマッピングする
+  return ((value - inMin) * (outMax - outMin)) / (inMax - inMin) + outMin;
+};
+
 //--------------------------------------------------------------------------------------
 //triangleの生成関数
 //--------------------------------------------------------------------------------------
@@ -244,7 +366,11 @@ const createDelaunayTriangles = (contour) => {
   calculateCentroid(vertices, indices);
   drawCentroidIds();
 
-  clipCentroidLine(contour);
+  // clipCentroidLine(contour);
+
+  createBaseMesh(vertices, indices);
+  createThicknessMesh(vertices);
+  createLine(vertices, indices);
 };
 
 //--------------------------------------------------------------------------------------
@@ -405,8 +531,8 @@ const clipCentroidLine = (contour) => {
     }
   }
 
-  createMesh(vertices, indices);
-  createLine(vertices, indices);
+  // createBaseMesh(vertices, indices);
+  // createLine(vertices, indices);
 };
 
 //--------------------------------------------------------------------------------------
@@ -416,7 +542,7 @@ let points = [];
 let arr = [];
 let lineMesh = null;
 let isDrawing = false;
-const distanceThreshold = 0.5; // ワールド座標での保存間隔
+const distanceThreshold = 0.25; // ワールド座標での保存間隔
 
 // 画面座標をワールド座標に変換する関数
 function screenToWorld(x, y) {
@@ -432,6 +558,7 @@ function screenToWorld(x, y) {
 
 // Pointerdownイベントで描画を開始
 canvas.addEventListener('pointerdown', function (e) {
+  if (isAnyKeyPressed) return;
   isDrawing = true;
   points = []; // 新しいラインを描画するためにポイントをリセット
   const worldPos = screenToWorld(scene.pointerX, scene.pointerY);
@@ -470,18 +597,36 @@ canvas.addEventListener('pointermove', function (e) {
 
 // Pointerupイベントで描画を終了
 canvas.addEventListener('pointerup', function (e) {
+  if (isAnyKeyPressed) return;
   isDrawing = false;
   if (points.length > 1) {
     createDelaunayTriangles(arr);
   }
 });
 
+window.addEventListener('keydown', function (e) {
+  if (!isAnyKeyPressed) {
+    // 一度無効化したら再度無効化しないように
+    camera.attachControl(canvas, true); // カメラ制御を再有効化
+    isAnyKeyPressed = true;
+  }
+});
+
+// キーが離されたときにカメラ制御を再有効化
+window.addEventListener('keyup', function (e) {
+  if (isAnyKeyPressed) {
+    // 何かキーが押されている場合のみ再有効化
+    camera.detachControl(canvas); // カメラ制御を無効化
+    isAnyKeyPressed = false;
+  }
+});
+
 //--------------------------------------------------------------------------------------
 // デバッグ
 //--------------------------------------------------------------------------------------
-// setTimeout(() => {
-//   createDelaunayTriangles(debugPoints);
-// }, 100);
+setTimeout(() => {
+  createDelaunayTriangles(debugPoints);
+}, 100);
 
 //--------------------------------------------------------------------------------------
 // レンダリングループ
