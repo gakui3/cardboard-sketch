@@ -83,6 +83,7 @@ const createBaseMesh = (vertices, indices) => {
   for (let i = 0; i < 2; i++) {
     for (let k = 0; k < vertices.length; k++) {
       const p = (k + 1) % 3 == 0 ? vertices[k] + thickness * i : vertices[k];
+      // const p = vertices[k];
       margedVertices.push(p);
     }
   }
@@ -93,15 +94,61 @@ const createBaseMesh = (vertices, indices) => {
   }
   // console.log('margedIndices', margedIndices);
 
+  let minX = Infinity,
+    maxX = -Infinity,
+    minY = Infinity,
+    maxY = -Infinity;
+  for (let i = 0; i < vertices.length; i += 3) {
+    const x = vertices[i];
+    const y = vertices[i + 1];
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
+
+  console.log('min', minX, minY);
+  console.log('max', maxX, maxY);
+
+  const uvs = [];
+  for (let i = 0; i < 2; i++) {
+    for (let k = 0; k < vertices.length; k += 3) {
+      const x = vertices[k];
+      const y = vertices[k + 1];
+      const u = (x - minX) / (maxX - minX);
+      const v = (y - minY) / (maxY - minY);
+      // console.log('uv', u, v);
+      uvs.push(u, v);
+    }
+  }
+
   const vertexData = new BABYLON.VertexData();
   vertexData.positions = margedVertices;
   vertexData.indices = margedIndices;
+  vertexData.uvs = uvs;
 
   const mesh = new BABYLON.Mesh('mesh', scene);
   vertexData.applyToMesh(mesh, true);
 
-  const material = new BABYLON.StandardMaterial('material', scene);
-  material.backFaceCulling = false; // 両面描画を有効にする
+  // const material = new BABYLON.StandardMaterial('Mat', scene);
+  // material.emissiveTexture = new BABYLON.Texture('./test.png', scene);
+  // material.disableLighting = true;
+  // material.backFaceCulling = false; // 両面描画を有効にする
+  // material.diffuseColor = new BABYLON.Color3(1, 1, 1);
+
+  const material = new BABYLON.ShaderMaterial(
+    'shaderMaterial',
+    scene,
+    {
+      vertexSource: testVert,
+      fragmentSource: testFrag,
+    },
+    {
+      attributes: ['position', 'normal', 'uv'],
+      uniforms: ['worldViewProjection'],
+    }
+  );
+  material.backFaceCulling = false;
   mesh.material = material;
 };
 
@@ -288,7 +335,7 @@ const createThicknessMesh = (vertices) => {
       uniforms: ['worldViewProjection'],
     }
   );
-
+  material.backFaceCulling = false;
   mesh.material = material;
 };
 
@@ -360,17 +407,17 @@ const createDelaunayTriangles = (contour) => {
   // createLine(indices);
 
   // ---------- 頂点の位置にidを描画 ----------
-  drawVertexIds(vertices);
+  // drawVertexIds(vertices);
 
   // ---------- 重心の計算と描画 ----------
   calculateCentroid(vertices, indices);
-  drawCentroidIds();
+  // drawCentroidIds();
 
   // clipCentroidLine(contour);
 
   createBaseMesh(vertices, indices);
   createThicknessMesh(vertices);
-  createLine(vertices, indices);
+  // createLine(vertices, indices);
 };
 
 //--------------------------------------------------------------------------------------
