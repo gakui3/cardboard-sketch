@@ -10,7 +10,7 @@ const scene = new BABYLON.Scene(engine);
 const camera = new BABYLON.ArcRotateCamera(
   'camera',
   -1.57,
-  3.14,
+  1.57, // 3.14,
   10,
   new BABYLON.Vector3(0, 0, -1),
   scene
@@ -22,7 +22,7 @@ let indices = [];
 let vertices = [];
 let centroids = [];
 
-const thickness = 0.25;
+const thickness = 0.35;
 let isAnyKeyPressed = false;
 
 const debugPoints = [
@@ -107,18 +107,42 @@ const createBaseMesh = (vertices, indices) => {
     maxY = Math.max(maxY, y);
   }
 
-  console.log('min', minX, minY);
-  console.log('max', maxX, maxY);
+  // console.log('min', minX, minY);
+  // console.log('max', maxX, maxY);
 
+  // const uvs = [];
+  // for (let i = 0; i < 2; i++) {
+  //   for (let k = 0; k < vertices.length; k += 3) {
+  //     const x = vertices[k];
+  //     const y = vertices[k + 1];
+  //     const u = (x - minX) / (maxX - minX);
+  //     const v = (y - minY) / (maxY - minY);
+  //     // console.log('uv', u, v);
+  //     uvs.push(u, v);
+  //   }
+  // }
+
+  const angle = Math.random() * Math.PI * 2; // ランダムな角度 (0〜360度)
+  const cosAngle = Math.cos(angle);
+  const sinAngle = Math.sin(angle);
+
+  // UV座標を計算
   const uvs = [];
   for (let i = 0; i < 2; i++) {
     for (let k = 0; k < vertices.length; k += 3) {
       const x = vertices[k];
       const y = vertices[k + 1];
-      const u = (x - minX) / (maxX - minX);
-      const v = (y - minY) / (maxY - minY);
-      // console.log('uv', u, v);
-      uvs.push(u, v);
+
+      // UV座標の計算（正規化）
+      let u = (x - minX) / (maxX - minX);
+      let v = (y - minY) / (maxY - minY);
+
+      // 回転行列を適用
+      const rotatedU = u * cosAngle - v * sinAngle;
+      const rotatedV = u * sinAngle + v * cosAngle;
+
+      // 回転後のUV座標を追加
+      uvs.push(rotatedU, rotatedV);
     }
   }
 
@@ -131,24 +155,38 @@ const createBaseMesh = (vertices, indices) => {
   vertexData.applyToMesh(mesh, true);
 
   // const material = new BABYLON.StandardMaterial('Mat', scene);
-  // material.emissiveTexture = new BABYLON.Texture('./test.png', scene);
-  // material.disableLighting = true;
+  // material.diffuseTexture = new BABYLON.Texture('./paper/paper-diffuse.jpg', scene);
+  // material.bumpTexture = new BABYLON.Texture('./paper/paper-normal.jpg', scene);
+  // material.parallaxTexture = new BABYLON.Texture('./paper/paper-bump.jpg', scene);
+  // // material.disableLighting = true;
   // material.backFaceCulling = false; // 両面描画を有効にする
-  // material.diffuseColor = new BABYLON.Color3(1, 1, 1);
+  // material.parallaxScaleBias = 0.05;
+  // material.roughness = 1.0;
 
-  const material = new BABYLON.ShaderMaterial(
-    'shaderMaterial',
-    scene,
-    {
-      vertexSource: testVert,
-      fragmentSource: testFrag,
-    },
-    {
-      attributes: ['position', 'normal', 'uv'],
-      uniforms: ['worldViewProjection'],
-    }
-  );
+  const material = new BABYLON.PBRMaterial('cardboardMaterial', scene);
+  material.albedoTexture = new BABYLON.Texture('./paper/paper-diffuse.png', scene); // アルベドテクスチャ（ディフューズマップ）
+  material.bumpTexture = new BABYLON.Texture('./paper/paper-normal.jpg', scene); // ノーマルマップ（バンプテクスチャ）
+  material.parallaxTexture = new BABYLON.Texture('./paper/paper-bump.jpg', scene); // 高さマップ（パララックスマッピング）
+  material.parallaxScaleBias = 0.05; // パララックス効果のスケールを設定
+  material.roughness = 1.0; // 粗さを高く設定（光沢を抑える）
+  material.metallic = 0.0; // 金属度はゼロ（段ボールは非金属）
+  material.useAmbientOcclusionFromMetallicTextureRed = true; // 環境遮蔽
   material.backFaceCulling = false;
+
+  // const material = new BABYLON.ShaderMaterial(
+  //   'shaderMaterial',
+  //   scene,
+  //   {
+  //     vertexSource: testVert,
+  //     fragmentSource: testFrag,
+  //   },
+  //   {
+  //     attributes: ['position', 'normal', 'uv'],
+  //     uniforms: ['worldViewProjection'],
+  //   }
+  // );
+  // material.backFaceCulling = false;
+
   mesh.material = material;
 };
 
@@ -276,7 +314,7 @@ const createThicknessMesh = (vertices) => {
       i + verticesLength + 1 >= verticesLength * 2 ? verticesLength : i + verticesLength + 1;
     const idx2 = i + verticesLength;
 
-    console.log('idx', i, ':', idx0, idx1, idx2);
+    // console.log('idx', i, ':', idx0, idx1, idx2);
     indices.push(idx0, idx1, idx2);
   }
 
@@ -323,6 +361,13 @@ const createThicknessMesh = (vertices) => {
   // material.disableLighting = true;
   // material.diffuseColor = new BABYLON.Color3(1, 1, 1);
 
+  const wrapMode = BABYLON.Texture.WRAP_ADDRESSMODE;
+  const samplingMode = BABYLON.Texture.BILINEAR_SAMPLINGMODE;
+  const texture = new BABYLON.Texture('./paper/paper-side.jpg', scene);
+  texture.wrapU = wrapMode;
+  texture.wrapV = wrapMode;
+  texture.updateSamplingMode(samplingMode);
+
   const material = new BABYLON.ShaderMaterial(
     'shaderMaterial',
     scene,
@@ -332,9 +377,10 @@ const createThicknessMesh = (vertices) => {
     },
     {
       attributes: ['position', 'normal', 'uv'],
-      uniforms: ['worldViewProjection'],
+      uniforms: ['worldViewProjection', 'textureSampler'],
     }
   );
+  material.setTexture('textureSampler', texture);
   material.backFaceCulling = false;
   mesh.material = material;
 };
@@ -589,7 +635,7 @@ let points = [];
 let arr = [];
 let lineMesh = null;
 let isDrawing = false;
-const distanceThreshold = 0.25; // ワールド座標での保存間隔
+const distanceThreshold = 0.2; // ワールド座標での保存間隔
 
 // 画面座標をワールド座標に変換する関数
 function screenToWorld(x, y) {
@@ -671,9 +717,9 @@ window.addEventListener('keyup', function (e) {
 //--------------------------------------------------------------------------------------
 // デバッグ
 //--------------------------------------------------------------------------------------
-setTimeout(() => {
-  createDelaunayTriangles(debugPoints);
-}, 100);
+// setTimeout(() => {
+//   createDelaunayTriangles(debugPoints);
+// }, 100);
 
 //--------------------------------------------------------------------------------------
 // レンダリングループ
