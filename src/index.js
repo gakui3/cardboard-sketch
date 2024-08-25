@@ -1,8 +1,19 @@
 import * as BABYLON from '@babylonjs/core';
 import testVert from './shaders/test.vert?raw';
 import testFrag from './shaders/test.frag?raw';
+import paintVert from './shaders/paint.vert?raw';
+import paintFrag from './shaders/paint.frag?raw';
 import * as poly2tri from 'poly2tri';
+import debug from './shaders/debug.glsl?raw';
+import blit from './shaders/blit.glsl?raw';
+import copy from './shaders/copy.glsl?raw';
+import composite from './shaders/composite.glsl?raw';
+import quadVert from './shaders/quad.vert?raw';
+import { AdvancedDynamicTexture, Checkbox, TextBlock, Button } from '@babylonjs/gui/2D';
 
+//--------------------------------------------------------------------------------------
+// セットアップ
+//--------------------------------------------------------------------------------------
 const canvas = document.getElementById('renderCanvas');
 const engine = new BABYLON.Engine(canvas);
 const scene = new BABYLON.Scene(engine);
@@ -16,7 +27,108 @@ const camera = new BABYLON.ArcRotateCamera(
   scene
 );
 camera.setTarget(BABYLON.Vector3.Zero());
+//mainCameraにlayerMaskを設定。paint描画用のmeshをレンダリングしないようにするため
+camera.layerMask = 0x0fffffff;
 
+const mode = {
+  CREATE: 0,
+  PAINT: 1,
+};
+
+let currentMode = mode.PAINT;
+
+const depthCamera = new BABYLON.ArcRotateCamera(
+  'depthCamera',
+  Math.PI,
+  Math.PI / 4,
+  10,
+  BABYLON.Vector3.Zero(),
+  scene
+);
+
+const depthRenderer = scene.enableDepthRenderer(depthCamera);
+const depthTexture = depthRenderer.getDepthMap();
+
+const paintSrcRT = new BABYLON.RenderTargetTexture('paintSrcRT', 1024, scene);
+paintSrcRT.clearColor = new BABYLON.Color4(0, 0, 0, 0);
+scene.customRenderTargets.push(paintSrcRT);
+
+// ---------- graphics blitの設定 ----------
+const paintDestRT = new BABYLON.RenderTargetTexture('paintResultRT', 1024, scene);
+paintDestRT.clearColor = new BABYLON.Color4(0, 0, 0, 0);
+const tempRT = new BABYLON.RenderTargetTexture('tempRT', 1024, scene);
+tempRT.clearColor = new BABYLON.Color4(0, 0, 0, 0);
+const resultRT = new BABYLON.RenderTargetTexture('compositeRT', 1024, scene);
+resultRT.clearColor = new BABYLON.Color4(0, 0, 0, 0);
+
+// 加算用
+const paintScene = new BABYLON.Scene(engine);
+new BABYLON.FreeCamera('blitCamera', new BABYLON.Vector3(0, 0, -1), paintScene);
+
+const blitMesh = BABYLON.MeshBuilder.CreatePlane('quad', { size: 2 }, paintScene);
+const blitMaterial = new BABYLON.ShaderMaterial(
+  'blitMaterial',
+  paintScene,
+  {
+    vertexSource: quadVert,
+    fragmentSource: blit,
+  },
+  {
+    attributes: ['position', 'uv'],
+    uniforms: ['paintSrcTexture', 'tempTexture'],
+  }
+);
+blitMaterial.setTexture('paintSrcTexture', paintSrcRT);
+blitMaterial.setTexture('tempTexture', tempRT);
+blitMesh.material = blitMaterial;
+
+paintDestRT.renderList.push(blitMesh);
+paintScene.customRenderTargets.push(paintDestRT);
+
+//copy用
+const copyMesh = BABYLON.MeshBuilder.CreatePlane('quad', { size: 2 }, paintScene);
+const copyMaterial = new BABYLON.ShaderMaterial(
+  'copyMaterial',
+  paintScene,
+  {
+    vertexSource: quadVert,
+    fragmentSource: copy,
+  },
+  {
+    attributes: ['position', 'uv'],
+    uniforms: ['paintDestTexture'],
+  }
+);
+copyMaterial.setTexture('paintDestTexture', paintDestRT);
+copyMesh.material = copyMaterial;
+
+tempRT.renderList.push(copyMesh);
+paintScene.customRenderTargets.push(tempRT);
+
+//textureコンポジット用
+const compositeMesh = BABYLON.MeshBuilder.CreatePlane('quad', { size: 2 }, paintScene);
+const compositeMaterial = new BABYLON.ShaderMaterial(
+  'compositeMaterial',
+  paintScene,
+  {
+    vertexSource: quadVert,
+    fragmentSource: composite,
+  },
+  {
+    attributes: ['position', 'uv'],
+    uniforms: ['resultTexture', 'backgroundTexture'],
+  }
+);
+
+const tex = new BABYLON.Texture('./paper/paper-diffuse.png', paintScene);
+compositeMaterial.setTexture('resultTexture', resultRT);
+compositeMaterial.setTexture('backgroundTexture', tex);
+compositeMesh.material = compositeMaterial;
+
+resultRT.renderList.push(compositeMesh);
+paintScene.customRenderTargets.push(resultRT);
+
+///
 let triangles = [];
 let indices = [];
 let vertices = [];
@@ -24,6 +136,7 @@ let centroids = [];
 
 const thickness = 0.35;
 let isAnyKeyPressed = false;
+let paintMaterial;
 
 const debugPoints = [
   { x: -1.596416592544705, y: -2.8413638648418367, id: 0 },
@@ -138,33 +251,31 @@ const createBaseMesh = (vertices, indices) => {
       let v = (y - minY) / (maxY - minY);
 
       // 回転行列を適用
-      const rotatedU = u * cosAngle - v * sinAngle;
-      const rotatedV = u * sinAngle + v * cosAngle;
+      // const rotatedU = u * cosAngle - v * sinAngle;
+      // const rotatedV = u * sinAngle + v * cosAngle;
 
       // 回転後のUV座標を追加
-      uvs.push(rotatedU, rotatedV);
+      // uvs.push(rotatedU, rotatedV);
+
+      uvs.push(u, v);
     }
   }
+
+  //normalの計算
+  const normals = [];
+  BABYLON.VertexData.ComputeNormals(margedVertices, margedIndices, normals);
 
   const vertexData = new BABYLON.VertexData();
   vertexData.positions = margedVertices;
   vertexData.indices = margedIndices;
   vertexData.uvs = uvs;
+  vertexData.normals = normals;
 
   const mesh = new BABYLON.Mesh('mesh', scene);
   vertexData.applyToMesh(mesh, true);
 
-  // const material = new BABYLON.StandardMaterial('Mat', scene);
-  // material.diffuseTexture = new BABYLON.Texture('./paper/paper-diffuse.jpg', scene);
-  // material.bumpTexture = new BABYLON.Texture('./paper/paper-normal.jpg', scene);
-  // material.parallaxTexture = new BABYLON.Texture('./paper/paper-bump.jpg', scene);
-  // // material.disableLighting = true;
-  // material.backFaceCulling = false; // 両面描画を有効にする
-  // material.parallaxScaleBias = 0.05;
-  // material.roughness = 1.0;
-
   const material = new BABYLON.PBRMaterial('cardboardMaterial', scene);
-  material.albedoTexture = new BABYLON.Texture('./paper/paper-diffuse.png', scene); // アルベドテクスチャ（ディフューズマップ）
+  material.albedoTexture = resultRT; //new BABYLON.Texture('./paper/paper-diffuse.png', scene); // アルベドテクスチャ（ディフューズマップ）
   material.bumpTexture = new BABYLON.Texture('./paper/paper-normal.jpg', scene); // ノーマルマップ（バンプテクスチャ）
   material.parallaxTexture = new BABYLON.Texture('./paper/paper-bump.jpg', scene); // 高さマップ（パララックスマッピング）
   material.parallaxScaleBias = 0.05; // パララックス効果のスケールを設定
@@ -188,6 +299,27 @@ const createBaseMesh = (vertices, indices) => {
   // material.backFaceCulling = false;
 
   mesh.material = material;
+
+  // ---------- ペイント用のrtの用意 ----------
+  // const rt = new BABYLON.RenderTargetTexture('rt', 1024, scene);
+  const cloneMesh = mesh.clone('cloneMesh');
+  cloneMesh.layerMask = 0x10000000;
+  paintMaterial = new BABYLON.ShaderMaterial(
+    'shaderMaterial',
+    scene,
+    {
+      vertexSource: paintVert,
+      fragmentSource: paintFrag,
+    },
+    {
+      attributes: ['position', 'normal', 'uv'],
+      uniforms: ['worldViewProjection', 'world', 'normalMatrix', 'lightPosition', 'lightDirection'],
+    }
+  );
+  cloneMesh.material = paintMaterial;
+
+  paintSrcRT.renderList.push(cloneMesh);
+  paintSrcRT.activeCamera = depthCamera;
 };
 
 const createSurfaceMesh = (vertices, indices) => {};
@@ -652,11 +784,14 @@ function screenToWorld(x, y) {
 // Pointerdownイベントで描画を開始
 canvas.addEventListener('pointerdown', function (e) {
   if (isAnyKeyPressed) return;
-  isDrawing = true;
-  points = []; // 新しいラインを描画するためにポイントをリセット
-  const worldPos = screenToWorld(scene.pointerX, scene.pointerY);
-  points.push(worldPos);
-  arr = [];
+
+  if (currentMode === mode.CREATE) {
+    isDrawing = true;
+    points = []; // 新しいラインを描画するためにポイントをリセット
+    const worldPos = screenToWorld(scene.pointerX, scene.pointerY);
+    points.push(worldPos);
+    arr = [];
+  }
 });
 
 // Pointermoveイベントでラインを描画
@@ -686,14 +821,34 @@ canvas.addEventListener('pointermove', function (e) {
       lineMesh = BABYLON.MeshBuilder.CreateLines('line', { points: points }, scene);
     }
   }
+  if (currentMode === mode.PAINT) {
+    const ray = scene.createPickingRay(
+      scene.pointerX,
+      scene.pointerY,
+      BABYLON.Matrix.Identity(),
+      camera,
+      false
+    );
+    const distantPoint = ray.origin.add(ray.direction.scale(4.55)); // レイの方向に10単位進んだポイント
+    depthCamera.position = camera.position;
+    depthCamera.setTarget(distantPoint);
+
+    if (paintMaterial === undefined) return;
+    //paintmaterialに各種情報を渡す
+    paintMaterial.setVector3('lightPosition', camera.position);
+    paintMaterial.setVector3('lightDirection', distantPoint);
+  }
 });
 
 // Pointerupイベントで描画を終了
 canvas.addEventListener('pointerup', function (e) {
   if (isAnyKeyPressed) return;
-  isDrawing = false;
-  if (points.length > 1) {
-    createDelaunayTriangles(arr);
+
+  if (currentMode === mode.CREATE) {
+    isDrawing = false;
+    if (points.length > 1) {
+      createDelaunayTriangles(arr);
+    }
   }
 });
 
@@ -717,14 +872,99 @@ window.addEventListener('keyup', function (e) {
 //--------------------------------------------------------------------------------------
 // デバッグ
 //--------------------------------------------------------------------------------------
-// setTimeout(() => {
-//   createDelaunayTriangles(debugPoints);
-// }, 100);
+// depth bufferをデバッグ用に表示するための処理
+BABYLON.Effect.ShadersStore.debugFragmentShader = debug;
+const debugPP = new BABYLON.PostProcess(
+  'Debug',
+  'debug',
+  ['depthTextureSampler', 'paintSrcSampler', 'paintDestSampler', 'resultSampler'],
+  ['depthTextureSampler', 'paintSrcSampler', 'paintDestSampler', 'resultSampler'],
+  1.0,
+  camera
+);
+debugPP.onApply = function (effect) {
+  effect.setTexture('depthTextureSampler', depthTexture);
+  effect.setTexture('paintSrcSampler', paintSrcRT);
+  effect.setTexture('paintDestSampler', paintDestRT);
+  effect.setTexture('resultSampler', resultRT);
+};
+
+setTimeout(() => {
+  createDelaunayTriangles(debugPoints);
+}, 100);
+
+//--------------------------------------------------------------------------------------
+// GUIの設定
+//--------------------------------------------------------------------------------------
+let advancedTexture = AdvancedDynamicTexture.CreateFullscreenUI('GUI', true, scene);
+
+const checkbox = new Checkbox();
+checkbox.width = '30px';
+checkbox.height = '30px';
+checkbox.left = '-40%';
+checkbox.top = '20px';
+checkbox.color = 'white';
+checkbox.background = 'grey';
+checkbox.isChecked = true;
+checkbox.onIsCheckedChangedObservable.add(function (value) {
+  if (value) {
+    currentMode = mode.PAINT;
+    console.log('paint');
+  } else {
+    currentMode = mode.CREATE;
+    console.log('create');
+  }
+});
+
+// ラベルと一緒にチェックボックスを配置
+const header = new TextBlock();
+header.text = 'Toggle Switch';
+header.height = '30px';
+header.left = '-40%';
+header.top = '-50px';
+header.color = 'white';
+
+//textureのラベルを描画
+const texture01 = new TextBlock();
+texture01.text = 'depthTexture';
+texture01.height = '30px';
+texture01.left = '32.5%';
+texture01.top = '-45%';
+texture01.color = 'white';
+advancedTexture.addControl(texture01);
+
+const texture02 = new TextBlock();
+texture02.text = 'paintSrcRT';
+texture02.height = '30px';
+texture02.left = '32.5%';
+texture02.top = '-32.5%';
+texture02.color = 'white';
+advancedTexture.addControl(texture02);
+
+const texture03 = new TextBlock();
+texture03.text = 'paintDestRT';
+texture03.height = '30px';
+texture03.left = '32.5%';
+texture03.top = '-20%';
+texture03.color = 'white';
+advancedTexture.addControl(texture03);
+
+const texture04 = new TextBlock();
+texture04.text = 'resultRT';
+texture04.height = '30px';
+texture04.left = '32.5%';
+texture04.top = '-7.5%';
+texture04.color = 'white';
+advancedTexture.addControl(texture04);
+
+advancedTexture.addControl(header);
+advancedTexture.addControl(checkbox);
 
 //--------------------------------------------------------------------------------------
 // レンダリングループ
 //--------------------------------------------------------------------------------------
 // Render every frame
 engine.runRenderLoop(() => {
+  paintScene.render();
   scene.render();
 });
