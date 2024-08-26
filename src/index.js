@@ -10,6 +10,7 @@ import copy from './shaders/copy.glsl?raw';
 import composite from './shaders/composite.glsl?raw';
 import quadVert from './shaders/quad.vert?raw';
 import { AdvancedDynamicTexture, Checkbox, TextBlock, Button } from '@babylonjs/gui/2D';
+import { Cardboard } from './cardboard';
 
 //--------------------------------------------------------------------------------------
 // セットアップ
@@ -17,7 +18,8 @@ import { AdvancedDynamicTexture, Checkbox, TextBlock, Button } from '@babylonjs/
 const canvas = document.getElementById('renderCanvas');
 const engine = new BABYLON.Engine(canvas);
 const scene = new BABYLON.Scene(engine);
-// const camera = new BABYLON.FreeCamera('camera1', new BABYLON.Vector3(0, 5, -10), scene);
+window.scene = scene;
+
 const camera = new BABYLON.ArcRotateCamera(
   'camera',
   -1.57,
@@ -29,6 +31,11 @@ const camera = new BABYLON.ArcRotateCamera(
 camera.setTarget(BABYLON.Vector3.Zero());
 //mainCameraにlayerMaskを設定。paint描画用のmeshをレンダリングしないようにするため
 camera.layerMask = 0x0fffffff;
+
+const carboards = [];
+const paintScene = new BABYLON.Scene(engine);
+window.paintScene = paintScene;
+new BABYLON.FreeCamera('blitCamera', new BABYLON.Vector3(0, 0, -1), paintScene);
 
 const mode = {
   CREATE: 0,
@@ -45,96 +52,11 @@ const depthCamera = new BABYLON.ArcRotateCamera(
   BABYLON.Vector3.Zero(),
   scene
 );
+window.depthCamera = depthCamera;
 
 const depthRenderer = scene.enableDepthRenderer(depthCamera);
 const depthTexture = depthRenderer.getDepthMap();
 
-const paintSrcRT = new BABYLON.RenderTargetTexture('paintSrcRT', 1024, scene);
-paintSrcRT.clearColor = new BABYLON.Color4(0.0, 0.0, 0.0, 0.0);
-scene.customRenderTargets.push(paintSrcRT);
-
-// ---------- graphics blitの設定 ----------
-const paintDestRT = new BABYLON.RenderTargetTexture('paintResultRT', 1024, scene);
-paintDestRT.clearColor = new BABYLON.Color4(0, 0, 0, 0);
-const tempRT = new BABYLON.RenderTargetTexture('tempRT', 1024, scene);
-tempRT.clearColor = new BABYLON.Color4(0, 0, 0, 0);
-const resultRT = new BABYLON.RenderTargetTexture('compositeRT', 1024, scene);
-resultRT.clearColor = new BABYLON.Color4(0, 0, 0, 0);
-
-// 加算用
-const paintScene = new BABYLON.Scene(engine);
-new BABYLON.FreeCamera('blitCamera', new BABYLON.Vector3(0, 0, -1), paintScene);
-
-const blitMesh = BABYLON.MeshBuilder.CreatePlane('quad', { size: 2 }, paintScene);
-const blitMaterial = new BABYLON.ShaderMaterial(
-  'blitMaterial',
-  paintScene,
-  {
-    vertexSource: quadVert,
-    fragmentSource: blit,
-  },
-  {
-    attributes: ['position', 'uv'],
-    uniforms: ['paintSrcTexture', 'tempTexture'],
-  }
-);
-blitMaterial.setTexture('paintSrcTexture', paintSrcRT);
-blitMaterial.setTexture('tempTexture', tempRT);
-blitMesh.material = blitMaterial;
-
-paintDestRT.renderList.push(blitMesh);
-paintScene.customRenderTargets.push(paintDestRT);
-
-//copy用
-const copyMesh = BABYLON.MeshBuilder.CreatePlane('quad', { size: 2 }, paintScene);
-const copyMaterial = new BABYLON.ShaderMaterial(
-  'copyMaterial',
-  paintScene,
-  {
-    vertexSource: quadVert,
-    fragmentSource: copy,
-  },
-  {
-    attributes: ['position', 'uv'],
-    uniforms: ['paintDestTexture'],
-  }
-);
-copyMaterial.setTexture('paintDestTexture', paintDestRT);
-copyMesh.material = copyMaterial;
-
-tempRT.renderList.push(copyMesh);
-paintScene.customRenderTargets.push(tempRT);
-
-//textureコンポジット用
-const compositeMesh = BABYLON.MeshBuilder.CreatePlane('quad', { size: 2 }, paintScene);
-const compositeMaterial = new BABYLON.ShaderMaterial(
-  'compositeMaterial',
-  paintScene,
-  {
-    vertexSource: quadVert,
-    fragmentSource: composite,
-  },
-  {
-    attributes: ['position', 'uv'],
-    uniforms: ['resultTexture', 'backgroundTexture'],
-  }
-);
-
-const tex = new BABYLON.Texture('./paper/paper-diffuse.png', scene);
-compositeMaterial.setTexture('paintDestTexture', paintDestRT);
-compositeMaterial.setTexture('backgroundTexture', tex);
-compositeMesh.material = compositeMaterial;
-
-resultRT.renderList.push(compositeMesh);
-paintScene.customRenderTargets.push(resultRT);
-
-///
-let triangles = [];
-let indices = [];
-let vertices = [];
-let centroids = [];
-
-const thickness = 0.35;
 let isAnyKeyPressed = false;
 let paintMaterial;
 
@@ -169,434 +91,6 @@ light.intensity = 0.7;
 //ambient light
 const ambient = new BABYLON.HemisphericLight('ambient', new BABYLON.Vector3(0.2, 1, -0.2), scene);
 ambient.intensity = 1.0;
-
-//--------------------------------------------------------------------------------------
-// utils
-//--------------------------------------------------------------------------------------
-const isPointInsideCircle = (A, B, P) => {
-  // AとBを直径とする円の中心を求める
-  const centerX = (A.x + B.x) / 2;
-  const centerY = (A.y + B.y) / 2;
-
-  // AとBの距離の半分を円の半径とする
-  const radius = Math.sqrt((B.x - A.x) ** 2 + (B.y - A.y) ** 2) / 2;
-
-  // Pと円の中心の距離を求める
-  const distanceToCenter = Math.sqrt((P.x - centerX) ** 2 + (P.y - centerY) ** 2);
-
-  // Pが円の内側にあるかを判定する
-  return distanceToCenter <= radius;
-};
-
-const createBaseMesh = (vertices, indices) => {
-  const margedVertices = [];
-  const margedIndices = [...indices];
-  const verticesLength = vertices.length / 3;
-
-  for (let i = 0; i < 2; i++) {
-    for (let k = 0; k < vertices.length; k++) {
-      const p = (k + 1) % 3 == 0 ? vertices[k] + thickness * i : vertices[k];
-      // const p = vertices[k];
-      margedVertices.push(p);
-    }
-  }
-
-  for (let i = 0; i < indices.length; i++) {
-    const idx = indices[i] + verticesLength;
-    margedIndices.push(idx);
-  }
-  // console.log('margedIndices', margedIndices);
-
-  let minX = Infinity,
-    maxX = -Infinity,
-    minY = Infinity,
-    maxY = -Infinity;
-  for (let i = 0; i < vertices.length; i += 3) {
-    const x = vertices[i];
-    const y = vertices[i + 1];
-    minX = Math.min(minX, x);
-    maxX = Math.max(maxX, x);
-    minY = Math.min(minY, y);
-    maxY = Math.max(maxY, y);
-  }
-
-  // console.log('min', minX, minY);
-  // console.log('max', maxX, maxY);
-
-  // const uvs = [];
-  // for (let i = 0; i < 2; i++) {
-  //   for (let k = 0; k < vertices.length; k += 3) {
-  //     const x = vertices[k];
-  //     const y = vertices[k + 1];
-  //     const u = (x - minX) / (maxX - minX);
-  //     const v = (y - minY) / (maxY - minY);
-  //     // console.log('uv', u, v);
-  //     uvs.push(u, v);
-  //   }
-  // }
-
-  const angle = Math.random() * Math.PI * 2; // ランダムな角度 (0〜360度)
-  const cosAngle = Math.cos(angle);
-  const sinAngle = Math.sin(angle);
-
-  // UV座標を計算
-  const uvs = [];
-  for (let i = 0; i < 2; i++) {
-    for (let k = 0; k < vertices.length; k += 3) {
-      const x = vertices[k];
-      const y = vertices[k + 1];
-
-      // UV座標の計算（正規化）
-      let u = (x - minX) / (maxX - minX);
-      let v = (y - minY) / (maxY - minY);
-
-      // 回転行列を適用
-      // const rotatedU = u * cosAngle - v * sinAngle;
-      // const rotatedV = u * sinAngle + v * cosAngle;
-
-      // 回転後のUV座標を追加
-      // uvs.push(rotatedU, rotatedV);
-
-      uvs.push(u, v);
-    }
-  }
-
-  //normalの計算
-  const normals = [];
-  BABYLON.VertexData.ComputeNormals(margedVertices, margedIndices, normals);
-
-  const vertexData = new BABYLON.VertexData();
-  vertexData.positions = margedVertices;
-  vertexData.indices = margedIndices;
-  vertexData.uvs = uvs;
-  vertexData.normals = normals;
-
-  const mesh = new BABYLON.Mesh('mesh', scene);
-  vertexData.applyToMesh(mesh, true);
-
-  const material = new BABYLON.PBRMaterial('cardboardMaterial', scene);
-  material.albedoTexture = resultRT; //new BABYLON.Texture('./paper/paper-diffuse.png', scene); // アルベドテクスチャ（ディフューズマップ）
-  material.bumpTexture = new BABYLON.Texture('./paper/paper-normal.jpg', scene); // ノーマルマップ（バンプテクスチャ）
-  material.parallaxTexture = new BABYLON.Texture('./paper/paper-bump.jpg', scene); // 高さマップ（パララックスマッピング）
-  material.parallaxScaleBias = 0.05; // パララックス効果のスケールを設定
-  material.roughness = 1.0; // 粗さを高く設定（光沢を抑える）
-  material.metallic = 0.0; // 金属度はゼロ（段ボールは非金属）
-  material.useAmbientOcclusionFromMetallicTextureRed = true; // 環境遮蔽
-  material.backFaceCulling = false;
-
-  // const material = new BABYLON.ShaderMaterial(
-  //   'shaderMaterial',
-  //   scene,
-  //   {
-  //     vertexSource: testVert,
-  //     fragmentSource: testFrag,
-  //   },
-  //   {
-  //     attributes: ['position', 'normal', 'uv'],
-  //     uniforms: ['worldViewProjection'],
-  //   }
-  // );
-  // material.backFaceCulling = false;
-
-  mesh.material = material;
-
-  // ---------- ペイント用のrtの用意 ----------
-  // const rt = new BABYLON.RenderTargetTexture('rt', 1024, scene);
-  const cloneMesh = mesh.clone('cloneMesh');
-  cloneMesh.layerMask = 0x10000000;
-  paintMaterial = new BABYLON.ShaderMaterial(
-    'shaderMaterial',
-    scene,
-    {
-      vertexSource: paintVert,
-      fragmentSource: paintFrag,
-    },
-    {
-      attributes: ['position', 'normal', 'uv'],
-      uniforms: ['worldViewProjection', 'world', 'normalMatrix', 'lightPosition', 'lightDirection'],
-    }
-  );
-  cloneMesh.material = paintMaterial;
-
-  paintSrcRT.renderList.push(cloneMesh);
-  paintSrcRT.activeCamera = depthCamera;
-};
-
-const createSurfaceMesh = (vertices, indices) => {};
-
-const createLine = (vertices, indices) => {
-  for (let i = 0; i < indices.length; i += 3) {
-    points = [];
-    points.push(
-      new BABYLON.Vector3(
-        vertices[indices[i] * 3],
-        vertices[indices[i] * 3 + 1],
-        vertices[indices[i] * 3 + 2]
-      )
-    );
-    points.push(
-      new BABYLON.Vector3(
-        vertices[indices[i + 1] * 3],
-        vertices[indices[i + 1] * 3 + 1],
-        vertices[indices[i + 1] * 3 + 2]
-      )
-    );
-    points.push(
-      new BABYLON.Vector3(
-        vertices[indices[i + 2] * 3],
-        vertices[indices[i + 2] * 3 + 1],
-        vertices[indices[i + 2] * 3 + 2]
-      )
-    );
-    points.push(
-      new BABYLON.Vector3(
-        vertices[indices[i] * 3],
-        vertices[indices[i] * 3 + 1],
-        vertices[indices[i] * 3 + 2]
-      )
-    );
-
-    const line = BABYLON.MeshBuilder.CreateLines(
-      'line',
-      {
-        points: points,
-      },
-      scene
-    );
-    line.color = new BABYLON.Color3(0, 0, 0);
-  }
-};
-
-const drawVertexIds = (vertice) => {
-  for (let i = 0; i < vertice.length; i += 3) {
-    const text = document.createElement('div');
-    text.textContent = i / 3;
-    text.style.position = 'absolute';
-    const screen = BABYLON.Vector3.Project(
-      new BABYLON.Vector3(vertice[i], vertice[i + 1] + 0.25, vertice[i + 2]),
-      BABYLON.Matrix.Identity(),
-      scene.getTransformMatrix(),
-      camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight())
-    );
-    text.style.left = `${screen.x}px`;
-    text.style.top = `${screen.y}px`;
-    text.style.color = 'red';
-    document.body.appendChild(text);
-  }
-};
-
-const calculateCentroid = (vertice, indices) => {
-  for (let i = 0; i < indices.length; i += 3) {
-    const x =
-      (vertice[indices[i] * 3] + vertice[indices[i + 1] * 3] + vertice[indices[i + 2] * 3]) / 3;
-    const y =
-      (vertice[indices[i] * 3 + 1] +
-        vertice[indices[i + 1] * 3 + 1] +
-        vertice[indices[i + 2] * 3 + 1]) /
-      3;
-    const z = 1;
-    const c = new BABYLON.Vector3(x, y, z);
-    centroids.push(c);
-  }
-};
-
-const drawCentroidIds = () => {
-  for (let i = 0; i < centroids.length; i++) {
-    const centerScreen = BABYLON.Vector3.Project(
-      centroids[i],
-      BABYLON.Matrix.Identity(),
-      scene.getTransformMatrix(),
-      camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight())
-    );
-    const text = document.createElement('div');
-    text.textContent = i;
-    text.style.position = 'absolute';
-    text.style.left = `${centerScreen.x}px`;
-    text.style.top = `${centerScreen.y}px`;
-    document.body.appendChild(text);
-  }
-};
-
-const createThicknessMesh = (vertices) => {
-  const mergedVertices = [];
-  const indices = [];
-
-  //頂点をpush
-  for (let i = 0; i < 2; i++) {
-    for (let k = 0; k < vertices.length; k++) {
-      if ((k + 1) % 3 === 0) {
-        mergedVertices.push(vertices[k] + thickness * i);
-      } else {
-        mergedVertices.push(vertices[k]);
-      }
-      if (k === vertices.length - 1) {
-        mergedVertices.push(vertices[0]);
-        mergedVertices.push(vertices[1]);
-        mergedVertices.push(vertices[2] + thickness * i);
-        break;
-      }
-    }
-  }
-
-  const verticesLength = mergedVertices.length / 2 / 3;
-
-  for (let i = 0; i < verticesLength - 1; i++) {
-    const idx0 = i;
-    const idx1 =
-      i + verticesLength + 1 >= verticesLength * 2 ? verticesLength : i + verticesLength + 1;
-    const idx2 = i + verticesLength;
-
-    // console.log('idx', i, ':', idx0, idx1, idx2);
-    indices.push(idx0, idx1, idx2);
-  }
-
-  for (let i = 0; i < verticesLength - 1; i++) {
-    const idx0 = i;
-    const idx1 = i + 1 >= verticesLength ? 0 : i + 1;
-    const idx2 =
-      i + verticesLength + 1 >= verticesLength * 2 ? verticesLength : i + verticesLength + 1;
-
-    // console.log('idx', i, ':', idx0, idx1, idx2);
-    indices.push(idx0, idx1, idx2);
-  }
-
-  //uvの設定
-  const uvs = [];
-  for (let i = 0; i < mergedVertices.length; i += 3) {
-    const idx = i / 3 < 0 ? 0 : i / 3;
-    const idxLength = mergedVertices.length / 3;
-
-    const u =
-      idx < idxLength / 2
-        ? remap(idx, 0, idxLength / 2, 0, 1)
-        : remap(idx, idxLength / 2, idxLength, 0, 1);
-    const v = idx < idxLength / 2 ? 0 : 1;
-    // console.log('uv', u, ',', v);
-    uvs.push(u);
-    uvs.push(v);
-  }
-
-  var normals = [];
-  BABYLON.VertexData.ComputeNormals(mergedVertices, indices, normals);
-
-  const vertexData = new BABYLON.VertexData();
-  vertexData.positions = mergedVertices;
-  vertexData.indices = indices;
-  vertexData.normals = normals;
-  vertexData.uvs = uvs;
-
-  const mesh = new BABYLON.Mesh('mesh', scene);
-  vertexData.applyToMesh(mesh, true);
-
-  // const material = new BABYLON.StandardMaterial('testMat', scene);
-  // material.emissiveTexture = new BABYLON.Texture('./test.png', scene);
-  // material.disableLighting = true;
-  // material.diffuseColor = new BABYLON.Color3(1, 1, 1);
-
-  const wrapMode = BABYLON.Texture.WRAP_ADDRESSMODE;
-  const samplingMode = BABYLON.Texture.BILINEAR_SAMPLINGMODE;
-  const texture = new BABYLON.Texture('./paper/paper-side.jpg', scene);
-  texture.wrapU = wrapMode;
-  texture.wrapV = wrapMode;
-  texture.updateSamplingMode(samplingMode);
-
-  const material = new BABYLON.ShaderMaterial(
-    'shaderMaterial',
-    scene,
-    {
-      vertexSource: testVert,
-      fragmentSource: testFrag,
-    },
-    {
-      attributes: ['position', 'normal', 'uv'],
-      uniforms: ['worldViewProjection', 'textureSampler'],
-    }
-  );
-  material.setTexture('textureSampler', texture);
-  material.backFaceCulling = false;
-  mesh.material = material;
-};
-
-const remap = (value, inMin, inMax, outMin, outMax) => {
-  // 入力値が入力範囲のどの位置にあるかを計算し、出力範囲にマッピングする
-  return ((value - inMin) * (outMax - outMin)) / (inMax - inMin) + outMin;
-};
-
-//--------------------------------------------------------------------------------------
-//triangleの生成関数
-//--------------------------------------------------------------------------------------
-const createDelaunayTriangles = (contour) => {
-  triangles = [];
-  indices = [];
-  vertices = [];
-  centroids = [];
-  var swctx = new poly2tri.SweepContext(contour);
-  swctx.triangulate();
-  triangles = swctx.getTriangles();
-
-  for (let i = 0; i < triangles.length; i++) {
-    let c;
-    const neighbors = triangles[i].neighbors_;
-    // console.log(i, neighbors);
-    // const trueCount = neighbors.filter((value) => value !== null).length;
-    //計算済みかどうかのフラグ情報を持たせる
-    triangles[i].calculated = false;
-    let trueCount = 0;
-    for (let j = 0; j < neighbors.length; j++) {
-      if (neighbors[j] !== null) {
-        if (neighbors[j].isInterior()) {
-          trueCount++;
-        }
-      }
-    }
-    if (trueCount === 3) {
-      c = { r: 1, g: 0, b: 0 };
-      triangles[i].type = 'Junction';
-    } else if (trueCount === 2) {
-      triangles[i].type = 'Sleeve';
-      c = { r: 1, g: 1, b: 1 };
-    } else {
-      triangles[i].type = 'Terminal';
-      c = { r: 1, g: 1, b: 0 };
-    }
-    triangles[i].id = i;
-    triangles[i].getPoint();
-  }
-
-  // debugPoints.sort((a, b) => a.id - b.id);
-  contour.sort((a, b) => a.id - b.id);
-
-  // ---------- vertices,indicesの作成 ----------
-  vertices = [];
-  indices = [];
-  for (let i = 0; i < contour.length; i++) {
-    vertices.push(contour[i].x, contour[i].y, 1);
-  }
-  for (let i = 0; i < triangles.length; i++) {
-    indices.push(triangles[i].getPoint(0).id);
-    indices.push(triangles[i].getPoint(1).id);
-    indices.push(triangles[i].getPoint(2).id);
-  }
-
-  // ---------- meshの作成 ----------
-  // createMesh(vertices, indices);
-
-  // ---------- 頂点間にlineを描画 ----------
-  // createLine(indices);
-
-  // ---------- 頂点の位置にidを描画 ----------
-  // drawVertexIds(vertices);
-
-  // ---------- 重心の計算と描画 ----------
-  calculateCentroid(vertices, indices);
-  // drawCentroidIds();
-
-  // clipCentroidLine(contour);
-
-  createBaseMesh(vertices, indices);
-  createThicknessMesh(vertices);
-  // createLine(vertices, indices);
-};
 
 //--------------------------------------------------------------------------------------
 // 重心線の刈り取り
@@ -791,52 +285,59 @@ canvas.addEventListener('pointerdown', function (e) {
     const worldPos = screenToWorld(scene.pointerX, scene.pointerY);
     points.push(worldPos);
     arr = [];
+  } else if (currentMode === mode.PAINT) {
+    isDrawing = true;
   }
 });
 
 // Pointermoveイベントでラインを描画
 canvas.addEventListener('pointermove', function (e) {
+  if (isAnyKeyPressed) return;
+
   if (isDrawing) {
-    const worldPos = screenToWorld(scene.pointerX, scene.pointerY);
+    if (currentMode === mode.CREATE) {
+      const worldPos = screenToWorld(scene.pointerX, scene.pointerY);
 
-    // 一定間隔でのみポイントを追加
-    if (
-      points.length === 0 ||
-      BABYLON.Vector3.Distance(points[points.length - 1], worldPos) > distanceThreshold
-    ) {
-      points.push(worldPos);
-      const x = worldPos.x;
-      const y = worldPos.y;
-      const id = arr.length;
-      const data = {
-        x: x,
-        y: y,
-        id: id,
-      };
-      arr.push(data);
-      // ラインを更新または作成
-      if (lineMesh) {
-        lineMesh.dispose(); // 既存のラインを削除
+      // 一定間隔でのみポイントを追加
+      if (
+        points.length === 0 ||
+        BABYLON.Vector3.Distance(points[points.length - 1], worldPos) > distanceThreshold
+      ) {
+        points.push(worldPos);
+        const x = worldPos.x;
+        const y = worldPos.y;
+        const id = arr.length;
+        const data = {
+          x: x,
+          y: y,
+          id: id,
+        };
+        arr.push(data);
+        // ラインを更新または作成
+        if (lineMesh) {
+          lineMesh.dispose(); // 既存のラインを削除
+        }
+        lineMesh = BABYLON.MeshBuilder.CreateLines('line', { points: points }, scene);
       }
-      lineMesh = BABYLON.MeshBuilder.CreateLines('line', { points: points }, scene);
-    }
-  }
-  if (currentMode === mode.PAINT) {
-    const ray = scene.createPickingRay(
-      scene.pointerX,
-      scene.pointerY,
-      BABYLON.Matrix.Identity(),
-      camera,
-      false
-    );
-    const distantPoint = ray.origin.add(ray.direction.scale(4.55)); // レイの方向に10単位進んだポイント
-    depthCamera.position = camera.position;
-    depthCamera.setTarget(distantPoint);
+    } else if (currentMode === mode.PAINT) {
+      const ray = scene.createPickingRay(
+        scene.pointerX,
+        scene.pointerY,
+        BABYLON.Matrix.Identity(),
+        camera,
+        false
+      );
+      const distantPoint = ray.origin.add(ray.direction.scale(4.55)); // レイの方向に10単位進んだポイント
+      depthCamera.position = camera.position;
+      depthCamera.setTarget(distantPoint);
 
-    if (paintMaterial === undefined) return;
-    //paintmaterialに各種情報を渡す
-    paintMaterial.setVector3('lightPosition', camera.position);
-    paintMaterial.setVector3('lightDirection', distantPoint);
+      if (carboards.length === 0) return;
+
+      for (let i = 0; i < carboards.length; i++) {
+        carboards[i].paintMaterial.setVector3('lightPosition', camera.position);
+        carboards[i].paintMaterial.setVector3('lightDirection', distantPoint);
+      }
+    }
   }
 });
 
@@ -847,8 +348,13 @@ canvas.addEventListener('pointerup', function (e) {
   if (currentMode === mode.CREATE) {
     isDrawing = false;
     if (points.length > 1) {
-      createDelaunayTriangles(arr);
+      // createDelaunayTriangles(arr);
+      const cardboard = new Cardboard(arr);
+
+      carboards.push(cardboard);
     }
+  } else if (currentMode === mode.PAINT) {
+    isDrawing = false;
   }
 });
 
@@ -873,24 +379,30 @@ window.addEventListener('keyup', function (e) {
 // デバッグ
 //--------------------------------------------------------------------------------------
 // depth bufferをデバッグ用に表示するための処理
-BABYLON.Effect.ShadersStore.debugFragmentShader = debug;
-const debugPP = new BABYLON.PostProcess(
-  'Debug',
-  'debug',
-  ['depthTextureSampler', 'paintSrcSampler', 'paintDestSampler', 'resultSampler'],
-  ['depthTextureSampler', 'paintSrcSampler', 'paintDestSampler', 'resultSampler'],
-  1.0,
-  camera
-);
-debugPP.onApply = function (effect) {
-  effect.setTexture('depthTextureSampler', depthTexture);
-  effect.setTexture('paintSrcSampler', paintSrcRT);
-  effect.setTexture('paintDestSampler', paintDestRT);
-  effect.setTexture('resultSampler', resultRT);
-};
+let cardboard;
 
 setTimeout(() => {
-  createDelaunayTriangles(debugPoints);
+  BABYLON.Effect.ShadersStore.debugFragmentShader = debug;
+  const debugPP = new BABYLON.PostProcess(
+    'Debug',
+    'debug',
+    ['depthTextureSampler', 'paintSrcSampler', 'paintDestSampler', 'resultSampler'],
+    ['depthTextureSampler', 'paintSrcSampler', 'paintDestSampler', 'resultSampler'],
+    1.0,
+    camera
+  );
+  debugPP.onApply = function (effect) {
+    effect.setTexture('depthTextureSampler', depthTexture);
+    effect.setTexture('paintSrcSampler', cardboard.paintSrcRT);
+    effect.setTexture('paintDestSampler', cardboard.paintDestRT);
+    effect.setTexture('resultSampler', cardboard.resultRT);
+  };
+}, 500);
+
+setTimeout(() => {
+  // createDelaunayTriangles(debugPoints);
+  cardboard = new Cardboard(debugPoints);
+  carboards.push(cardboard);
 }, 100);
 
 //--------------------------------------------------------------------------------------
