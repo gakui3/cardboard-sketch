@@ -23,21 +23,25 @@ void main(void ) {
   if (xIdx == 0.0 && yIdx == 0.0) {
     vec2 uv = vec2(1.0 - repeatUV.x, 1.0 - repeatUV.y);
     vec4 col = texture2D(depthTextureSampler, uv);
+    col.a = 1.0;
     c = col;
   }
   if (xIdx == 0.0 && yIdx == 1.0) {
     vec2 uv = vec2(1.0 - repeatUV.x, 1.0 - repeatUV.y);
     vec4 col = texture2D(paintSrcSampler, uv);
+    col.a = 1.0;
     c = col;
   }
   if (xIdx == 0.0 && yIdx == 2.0) {
     vec2 uv = vec2(1.0 - repeatUV.x, 1.0 - repeatUV.y);
     vec4 col = texture2D(paintDestSampler, uv);
+    col.a = 1.0;
     c = col;
   }
   if (xIdx == 0.0 && yIdx == 3.0) {
     vec2 uv = vec2(1.0 - repeatUV.x, 1.0 - repeatUV.y);
     vec4 col = texture2D(resultSampler, uv);
+    col.a = 1.0;
     c = col;
   }
 

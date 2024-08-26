@@ -50,7 +50,7 @@ const depthRenderer = scene.enableDepthRenderer(depthCamera);
 const depthTexture = depthRenderer.getDepthMap();
 
 const paintSrcRT = new BABYLON.RenderTargetTexture('paintSrcRT', 1024, scene);
-paintSrcRT.clearColor = new BABYLON.Color4(0, 0, 0, 0);
+paintSrcRT.clearColor = new BABYLON.Color4(0.0, 0.0, 0.0, 0.0);
 scene.customRenderTargets.push(paintSrcRT);
 
 // ---------- graphics blitの設定 ----------
@@ -120,8 +120,8 @@ const compositeMaterial = new BABYLON.ShaderMaterial(
   }
 );
 
-const tex = new BABYLON.Texture('./paper/paper-diffuse.png', paintScene);
-compositeMaterial.setTexture('resultTexture', resultRT);
+const tex = new BABYLON.Texture('./paper/paper-diffuse.png', scene);
+compositeMaterial.setTexture('paintDestTexture', paintDestRT);
 compositeMaterial.setTexture('backgroundTexture', tex);
 compositeMesh.material = compositeMaterial;
 

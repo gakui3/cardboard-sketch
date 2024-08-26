@@ -44,5 +44,5 @@ void main(void ) {
   // ライトの最終強度を計算
   vec3 result = lightColor * diffuse * intensity * lightIntensity;
 
-  fragColor = vec4(result, 1.0);
+  fragColor = vec4(result, intensity);
 }
