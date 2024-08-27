@@ -19,7 +19,7 @@ out vec4 fragColor;
 void main(void ) {
   vec3 lightColor = vec3(1.0, 0.0, 0.0); // ライトの色
   float lightCutoff = cos(radians(0.5)); // スポットライトのカットオフ角度（コサイン値）
-  float lightOuterCutoff = cos(radians(0.8)); // スポットライトの外側カットオフ角度（コサイン値）
+  float lightOuterCutoff = cos(radians(0.7)); // スポットライトの外側カットオフ角度（コサイン値）
   float lightIntensity = 3.0; // ライトの強度
   //   vec3 lightPosition = vec3(0.0, -1.0, -0.25); // ライトの位置
   //   vec3 lightDirection = vec3(0.0, 0.0, 1.0); // ライトの方向
@@ -30,9 +30,9 @@ void main(void ) {
   // 頂点からライトへのベクトル
   vec3 toLightDir = normalize(lightPosition - worldPosition);
 
-  vec3 fixLightDirection = vec3(-lightDirection.x, -lightDirection.y, lightDirection.z);
+  vec3 fixLightDirection = normalize(vec3(-lightDirection.x, -lightDirection.y, -lightDirection.z));
   // ライトの方向とライトから頂点へのベクトルのコサイン角度
-  float theta = dot(toLightDir, normalize(fixLightDirection));
+  float theta = dot(toLightDir, fixLightDirection);
 
   // 照明強度の計算（スポットライトの減衰を含む）
   float epsilon = lightCutoff - lightOuterCutoff;

@@ -44,14 +44,15 @@ const mode = {
 
 let currentMode = mode.PAINT;
 
-const depthCamera = new BABYLON.ArcRotateCamera(
-  'depthCamera',
-  Math.PI,
-  Math.PI / 4,
-  10,
-  BABYLON.Vector3.Zero(),
-  scene
-);
+// const depthCamera = new BABYLON.ArcRotateCamera(
+//   'depthCamera',
+//   Math.PI,
+//   Math.PI / 4,
+//   10,
+//   BABYLON.Vector3.Zero(),
+//   scene
+// );
+const depthCamera = new BABYLON.FreeCamera('depthCamera', new BABYLON.Vector3(0, 0, -1), scene);
 window.depthCamera = depthCamera;
 
 const depthRenderer = scene.enableDepthRenderer(depthCamera);
@@ -91,6 +92,32 @@ light.intensity = 0.7;
 //ambient light
 const ambient = new BABYLON.HemisphericLight('ambient', new BABYLON.Vector3(0.2, 1, -0.2), scene);
 ambient.intensity = 1.0;
+
+function transformCoordinatesCustom(vector, matrix) {
+  const x =
+    vector.x * matrix.m[0] +
+    vector.y * matrix.m[4] +
+    vector.z * matrix.m[8] +
+    vector.w * matrix.m[12];
+  const y =
+    vector.x * matrix.m[1] +
+    vector.y * matrix.m[5] +
+    vector.z * matrix.m[9] +
+    vector.w * matrix.m[13];
+  const z =
+    vector.x * matrix.m[2] +
+    vector.y * matrix.m[6] +
+    vector.z * matrix.m[10] +
+    vector.w * matrix.m[14];
+  const w =
+    vector.x * matrix.m[3] +
+    vector.y * matrix.m[7] +
+    vector.z * matrix.m[11] +
+    vector.w * matrix.m[15];
+
+  // 透視除算
+  return new BABYLON.Vector4(x / w, y / w, z / w, 1.0);
+}
 
 //--------------------------------------------------------------------------------------
 // 重心線の刈り取り
@@ -324,18 +351,56 @@ canvas.addEventListener('pointermove', function (e) {
         scene.pointerX,
         scene.pointerY,
         BABYLON.Matrix.Identity(),
-        camera,
-        false
+        camera
       );
-      const distantPoint = ray.origin.add(ray.direction.scale(4.55)); // レイの方向に10単位進んだポイント
+      const distantPoint = ray.origin.add(ray.direction.scale(1)); // レイの方向に10単位進んだポイント
       depthCamera.position = camera.position;
-      depthCamera.setTarget(distantPoint);
+      // depthCamera.setTarget(distantPoint);
+      depthCamera.setTarget(BABYLON.Vector3.Zero());
+
+      // ---------- test ----------
+      const canvasWidth = canvas.width;
+      const canvasHeight = canvas.height;
+
+      // pointerX, pointerY をキャンバス内にクリッピング
+      const clippedX = Math.min(Math.max(scene.pointerX, 0), canvasWidth);
+      const clippedY = Math.min(Math.max(scene.pointerY, 0), canvasHeight);
+
+      // 0~1の範囲に正規化
+      const normalizedX = clippedX / canvasWidth;
+      const normalizedY = clippedY / canvasHeight;
+
+      // NDC (正規化されたデバイス座標) に変換 (-1から1の範囲)
+      const ndcX = normalizedX * 2.0 - 1.0;
+      const ndcY = 1.0 - normalizedY * 2.0; // Y座標は反転
+
+      const invProjectionMatrix = BABYLON.Matrix.Invert(camera.getProjectionMatrix());
+      const invViewMatrix = BABYLON.Matrix.Invert(camera.getViewMatrix());
+
+      // const matrixArray = invProjectionMatrix.m;
+
+      // for (let i = 0; i < matrixArray.length; i++) {
+      //   if (Object.is(matrixArray[i], -0)) {
+      //     matrixArray[i] = 0;
+      //   }
+      // }
+
+      // クリップ座標を作成
+      const clipSpace = new BABYLON.Vector4(ndcX, ndcY, -0.5, 1.0);
+      // クリップ座標をビュー座標に変換
+      const viewSpace = transformCoordinatesCustom(clipSpace, invProjectionMatrix);
+      // ビュー座標系からワールド座標系へ
+      const worldSpace = BABYLON.Vector3.TransformCoordinates(viewSpace.toVector3(), invViewMatrix);
+      // ライトの位置
+      const lightPosition = camera.position; // 例として (0, 1, 0)
+      // ワールド空間の点へのベクトルを計算し、方向ベクトルを求める
+      let direction = worldSpace.subtract(lightPosition);
 
       if (carboards.length === 0) return;
 
       for (let i = 0; i < carboards.length; i++) {
         carboards[i].paintMaterial.setVector3('lightPosition', camera.position);
-        carboards[i].paintMaterial.setVector3('lightDirection', distantPoint);
+        carboards[i].paintMaterial.setVector3('lightDirection', direction);
       }
     }
   }
