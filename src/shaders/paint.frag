@@ -9,7 +9,8 @@ in vec3 worldPosition; // 頂点シェーダーから渡されるワールド座
 // uniform sampler2D textureSampler;
 uniform vec3 lightPosition; // ライトの位置
 uniform vec3 lightDirection; // ライトの方向
-// uniform vec3 lightColor; // ライトの色
+uniform vec3 lightColor; // ライトの色
+uniform float brushSize; // ブラシのサイズ
 // uniform float lightCutoff; // スポットライトのカットオフ角度（コサイン値）
 // uniform float lightOuterCutoff; // スポットライトの外側カットオフ角度（コサイン値）
 // uniform float lightIntensity; // ライトの強度
@@ -17,10 +18,10 @@ uniform vec3 lightDirection; // ライトの方向
 out vec4 fragColor;
 
 void main(void ) {
-  vec3 lightColor = vec3(1.0, 0.0, 0.0); // ライトの色
-  float lightCutoff = cos(radians(0.5)); // スポットライトのカットオフ角度（コサイン値）
-  float lightOuterCutoff = cos(radians(0.7)); // スポットライトの外側カットオフ角度（コサイン値）
-  float lightIntensity = 3.0; // ライトの強度
+  vec3 lightColor = lightColor; // ライトの色
+  float lightCutoff = cos(radians(brushSize)); // スポットライトのカットオフ角度（コサイン値）
+  float lightOuterCutoff = cos(radians(brushSize)); // スポットライトの外側カットオフ角度（コサイン値）
+  float lightIntensity = 1.0; // ライトの強度
   //   vec3 lightPosition = vec3(0.0, -1.0, -0.25); // ライトの位置
   //   vec3 lightDirection = vec3(0.0, 0.0, 1.0); // ライトの方向
 

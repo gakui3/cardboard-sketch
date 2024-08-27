@@ -70,9 +70,10 @@ void main(void ) {
   // vec4 col = blendScreen(paint, background);
   // vec4 col = blendOverlay(paint, background);
   // vec4 col = blendMultiply(paint, background);
-  vec4 col = blendAdd(paint, background);
+  // vec4 col = blendAdd(paint, background);
   // vec4 col = blendSoftLight(paint, background);
   // vec4 col = blendColorDodge(paint, background);
+  vec4 col = mix(background, paint, paint.a);
 
   fragColor = col;
 }

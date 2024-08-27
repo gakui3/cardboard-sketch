@@ -11,6 +11,7 @@ import composite from './shaders/composite.glsl?raw';
 import quadVert from './shaders/quad.vert?raw';
 import { AdvancedDynamicTexture, Checkbox, TextBlock, Button } from '@babylonjs/gui/2D';
 import { Cardboard } from './cardboard';
+import GUI from 'lil-gui';
 
 //--------------------------------------------------------------------------------------
 // セットアップ
@@ -42,7 +43,7 @@ const mode = {
   PAINT: 1,
 };
 
-let currentMode = mode.PAINT;
+let currentMode = mode.CREATE;
 
 // const depthCamera = new BABYLON.ArcRotateCamera(
 //   'depthCamera',
@@ -117,6 +118,24 @@ function transformCoordinatesCustom(vector, matrix) {
 
   // 透視除算
   return new BABYLON.Vector4(x / w, y / w, z / w, 1.0);
+}
+
+function hexToNormalizedVector3(hex) {
+  // 先頭の # を取り除く
+  hex = hex.replace(/^#/, '');
+
+  // 各色成分を抽出
+  let r = parseInt(hex.substring(0, 2), 16);
+  let g = parseInt(hex.substring(2, 4), 16);
+  let b = parseInt(hex.substring(4, 6), 16);
+
+  // 0〜255の値を0〜1に正規化
+  let rNormalized = r / 255;
+  let gNormalized = g / 255;
+  let bNormalized = b / 255;
+
+  // Vector3として返す
+  return new BABYLON.Vector3(rNormalized, gNormalized, bNormalized);
 }
 
 //--------------------------------------------------------------------------------------
@@ -420,6 +439,13 @@ canvas.addEventListener('pointerup', function (e) {
     }
   } else if (currentMode === mode.PAINT) {
     isDrawing = false;
+    for (let i = 0; i < carboards.length; i++) {
+      carboards[i].paintMaterial.setVector3('lightPosition', camera.position);
+      carboards[i].paintMaterial.setVector3(
+        'lightDirection',
+        new BABYLON.Vector3(-100, -100, -100)
+      );
+    }
   }
 });
 
@@ -443,99 +469,104 @@ window.addEventListener('keyup', function (e) {
 //--------------------------------------------------------------------------------------
 // デバッグ
 //--------------------------------------------------------------------------------------
-// depth bufferをデバッグ用に表示するための処理
-let cardboard;
+// depth bufferをデバッグ用に表示するための関数
+const debugObj = () => {
+  let cardboard;
 
-setTimeout(() => {
-  BABYLON.Effect.ShadersStore.debugFragmentShader = debug;
-  const debugPP = new BABYLON.PostProcess(
-    'Debug',
-    'debug',
-    ['depthTextureSampler', 'paintSrcSampler', 'paintDestSampler', 'resultSampler'],
-    ['depthTextureSampler', 'paintSrcSampler', 'paintDestSampler', 'resultSampler'],
-    1.0,
-    camera
-  );
-  debugPP.onApply = function (effect) {
-    effect.setTexture('depthTextureSampler', depthTexture);
-    effect.setTexture('paintSrcSampler', cardboard.paintSrcRT);
-    effect.setTexture('paintDestSampler', cardboard.paintDestRT);
-    effect.setTexture('resultSampler', cardboard.resultRT);
-  };
-}, 500);
+  let advancedTexture = AdvancedDynamicTexture.CreateFullscreenUI('GUI', true, scene);
 
-setTimeout(() => {
-  // createDelaunayTriangles(debugPoints);
-  cardboard = new Cardboard(debugPoints);
-  carboards.push(cardboard);
-}, 100);
+  //textureのラベルを描画
+  const texture01 = new TextBlock();
+  texture01.text = 'depthTexture';
+  texture01.height = '30px';
+  texture01.left = '32.5%';
+  texture01.top = '-45%';
+  texture01.color = 'white';
+  advancedTexture.addControl(texture01);
+
+  const texture02 = new TextBlock();
+  texture02.text = 'paintSrcRT';
+  texture02.height = '30px';
+  texture02.left = '32.5%';
+  texture02.top = '-32.5%';
+  texture02.color = 'white';
+  advancedTexture.addControl(texture02);
+
+  const texture03 = new TextBlock();
+  texture03.text = 'paintDestRT';
+  texture03.height = '30px';
+  texture03.left = '32.5%';
+  texture03.top = '-20%';
+  texture03.color = 'white';
+  advancedTexture.addControl(texture03);
+
+  const texture04 = new TextBlock();
+  texture04.text = 'resultRT';
+  texture04.height = '30px';
+  texture04.left = '32.5%';
+  texture04.top = '-7.5%';
+  texture04.color = 'white';
+  advancedTexture.addControl(texture04);
+
+  setTimeout(() => {
+    BABYLON.Effect.ShadersStore.debugFragmentShader = debug;
+    const debugPP = new BABYLON.PostProcess(
+      'Debug',
+      'debug',
+      ['depthTextureSampler', 'paintSrcSampler', 'paintDestSampler', 'resultSampler'],
+      ['depthTextureSampler', 'paintSrcSampler', 'paintDestSampler', 'resultSampler'],
+      1.0,
+      camera
+    );
+    debugPP.onApply = function (effect) {
+      effect.setTexture('depthTextureSampler', depthTexture);
+      effect.setTexture('paintSrcSampler', cardboard.paintSrcRT);
+      effect.setTexture('paintDestSampler', cardboard.paintDestRT);
+      effect.setTexture('resultSampler', cardboard.resultRT);
+    };
+  }, 500);
+
+  setTimeout(() => {
+    // createDelaunayTriangles(debugPoints);
+    cardboard = new Cardboard(debugPoints);
+    carboards.push(cardboard);
+  }, 100);
+};
 
 //--------------------------------------------------------------------------------------
 // GUIの設定
 //--------------------------------------------------------------------------------------
-let advancedTexture = AdvancedDynamicTexture.CreateFullscreenUI('GUI', true, scene);
+const gui = new GUI();
+const params = {
+  isCreateMode: true,
+  brushSize: 0.5,
+};
 
-const checkbox = new Checkbox();
-checkbox.width = '30px';
-checkbox.height = '30px';
-checkbox.left = '-40%';
-checkbox.top = '20px';
-checkbox.color = 'white';
-checkbox.background = 'grey';
-checkbox.isChecked = true;
-checkbox.onIsCheckedChangedObservable.add(function (value) {
+const colorFormats = {
+  string: '#ffffff',
+  int: 0xffffff,
+  object: { r: 1, g: 1, b: 1 },
+  array: [1, 1, 1],
+};
+
+gui.add(params, 'isCreateMode').onChange((value) => {
   if (value) {
-    currentMode = mode.PAINT;
-    console.log('paint');
-  } else {
     currentMode = mode.CREATE;
-    console.log('create');
+  } else {
+    currentMode = mode.PAINT;
   }
 });
-
-// ラベルと一緒にチェックボックスを配置
-const header = new TextBlock();
-header.text = 'Toggle Switch';
-header.height = '30px';
-header.left = '-40%';
-header.top = '-50px';
-header.color = 'white';
-
-//textureのラベルを描画
-const texture01 = new TextBlock();
-texture01.text = 'depthTexture';
-texture01.height = '30px';
-texture01.left = '32.5%';
-texture01.top = '-45%';
-texture01.color = 'white';
-advancedTexture.addControl(texture01);
-
-const texture02 = new TextBlock();
-texture02.text = 'paintSrcRT';
-texture02.height = '30px';
-texture02.left = '32.5%';
-texture02.top = '-32.5%';
-texture02.color = 'white';
-advancedTexture.addControl(texture02);
-
-const texture03 = new TextBlock();
-texture03.text = 'paintDestRT';
-texture03.height = '30px';
-texture03.left = '32.5%';
-texture03.top = '-20%';
-texture03.color = 'white';
-advancedTexture.addControl(texture03);
-
-const texture04 = new TextBlock();
-texture04.text = 'resultRT';
-texture04.height = '30px';
-texture04.left = '32.5%';
-texture04.top = '-7.5%';
-texture04.color = 'white';
-advancedTexture.addControl(texture04);
-
-advancedTexture.addControl(header);
-advancedTexture.addControl(checkbox);
+gui.add(params, 'brushSize', 0.25, 2.0).onChange((value) => {
+  carboards.forEach((obj) => {
+    obj.paintMaterial.setFloat('brushSize', value);
+  });
+});
+gui.addColor(colorFormats, 'string').onChange((value) => {
+  carboards.forEach((obj) => {
+    const col = hexToNormalizedVector3(value);
+    obj.paintMaterial.setVector3('lightColor', col);
+  });
+});
 
 //--------------------------------------------------------------------------------------
 // レンダリングループ

@@ -326,12 +326,15 @@ export class Cardboard {
           'worldViewProjection',
           'world',
           'normalMatrix',
+          'brushSize',
+          'lightColor',
           'lightPosition',
           'lightDirection',
         ],
       }
     );
     cloneMesh.material = this.paintMaterial;
+    this.paintMaterial.setFloat('brushSize', 0.5);
 
     this.paintSrcRT.renderList.push(cloneMesh);
     this.paintSrcRT.activeCamera = window.depthCamera;
