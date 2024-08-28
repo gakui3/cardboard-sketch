@@ -23,5 +23,5 @@ export default {
   build: {
     outDir: 'docs',
   },
-  base: '/CardboardSketch/',
+  base: '/cardboard-sketch/',
 };

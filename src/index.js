@@ -584,7 +584,7 @@ gui.addColor(colorFormats, 'string').onChange((value) => {
 // レンダリングループ
 //--------------------------------------------------------------------------------------
 // Render every frame
-debugObj();
+// debugObj();
 engine.runRenderLoop(() => {
   paintScene.render();
   scene.render();
