@@ -63,26 +63,28 @@ let isAnyKeyPressed = false;
 let paintMaterial;
 
 const debugPoints = [
-  { x: -1.596416592544705, y: -2.8413638648418367, id: 0 },
-  { x: -2.140466349690566, y: -2.086678610622105, id: 1 },
-  { x: -2.4652451888000435, y: -1.2665913521741494, id: 2 },
-  { x: -2.5383523119011304, y: -0.49554212273614784, id: 3 },
-  { x: -2.4482070549013364, y: 0.3495577849858096, id: 4 },
-  { x: -1.7819472326181347, y: 0.8204120201048535, id: 5 },
-  { x: -0.9813723249067593, y: 0.5664489003601165, id: 6 },
-  { x: -0.07681711706719108, y: 0.7487103310305203, id: 7 },
-  { x: 0.5186321560927507, y: 1.2720716248739734, id: 8 },
-  { x: 1.26983104777283, y: 1.614706707948994, id: 9 },
-  { x: 2.0428515267918073, y: 1.4703526411589443, id: 10 },
-  { x: 2.599022803454241, y: 0.6409399149551045, id: 11 },
-  { x: 2.889287526867249, y: -0.1806702691676696, id: 12 },
-  { x: 2.8512112707732005, y: -0.937279145313151, id: 13 },
-  { x: 2.4839184070037934, y: -1.6439308747071477, id: 14 },
-  { x: 1.9545292187997758, y: -2.362877858870534, id: 15 },
-  { x: 1.4019368773518626, y: -2.9808155162280023, id: 16 },
-  { x: 0.7647628659255457, y: -3.5728183521811756, id: 17 },
-  { x: 0.11185614860680937, y: -3.9684976590805903, id: 18 },
-  { x: -0.6805903541441504, y: -4.1369743239711845, id: 19 },
+  { x: -2.7339553312817446, y: -2.9672299791825196, z: 0.9231215465149099, id: 0 },
+  { x: -3.41239808518941, y: -2.179728205932536, z: 0.9232004982051656, id: 1 },
+  { x: -3.8508072847434534, y: -1.4910729813433445, z: 0.9233816598798334, id: 2 },
+  { x: -4.2044639951723335, y: -0.667385238667633, z: 0.923721931330773, id: 3 },
+  { x: -4.369940525883953, y: 0.1540671090475746, z: 0.9241968144494681, id: 4 },
+  { x: -4.412589868446087, y: 1.1296650125636527, z: 0.9248722074707985, id: 5 },
+  { x: -4.276506766843334, y: 1.9535015919691407, z: 0.9255671257509377, id: 6 },
+  { x: -3.616887245907355, y: 2.3137158661586446, z: 0.9263054177465495, id: 7 },
+  { x: -2.394698465608626, y: 2.1829607450449116, z: 0.9270955431568932, id: 8 },
+  { x: -1.458672239018795, y: 1.6304623720550362, z: 0.9273731916926149, id: 9 },
+  { x: -0.7802488500343704, y: 1.0124568778730303, z: 0.9274169300712263, id: 10 },
+  { x: -0.047732140828380704, y: 1.2620127814864464, z: 0.9281278854509338, id: 11 },
+  { x: 0.8125439650424743, y: 1.5578196198757612, z: 0.928964812759979, id: 12 },
+  { x: 1.5971366234731244, y: 1.5018130852665692, z: 0.9294922606851816, id: 13 },
+  { x: 1.9991516080088954, y: 0.8172494487391029, z: 0.9292877140561462, id: 14 },
+  { x: 2.11709199001297, y: 0.06770325359152193, z: 0.9288304732197954, id: 15 },
+  { x: 2.029314198694648, y: -0.8544455158547117, z: 0.9280993532557584, id: 16 },
+  { x: 1.5844022161777713, y: -1.777462025555621, z: 0.9271090636819395, id: 17 },
+  { x: 1.0825731160479872, y: -2.347479524444648, z: 0.9263331178173271, id: 18 },
+  { x: 0.35430045340862437, y: -2.875507369451536, z: 0.9254236395906617, id: 19 },
+  { x: -0.4216936039287383, y: -3.1997970074966755, z: 0.9246271072225163, id: 20 },
+  { x: -1.25045997922052, y: -3.4067685423119682, z: 0.9238773017447688, id: 21 },
 ];
 
 // camera.attachControl(canvas, true);
@@ -307,19 +309,47 @@ let points = [];
 let arr = [];
 let lineMesh = null;
 let isDrawing = false;
-const distanceThreshold = 0.2; // ワールド座標での保存間隔
+const distanceThreshold = 0.75; // ワールド座標での保存間隔
 
 // 画面座標をワールド座標に変換する関数
-function screenToWorld(x, y) {
-  const pickRay = scene.createPickingRay(x, y, BABYLON.Matrix.Identity(), camera);
+// function screenToWorld(x, y) {
+//   const pickRay = scene.createPickingRay(x, y, BABYLON.Matrix.Identity(), camera);
 
-  // カメラからのレイを特定の距離スケールで拡大して使用します。
-  // ここでは地面をz = 0の平面と仮定しているため、以下の計算でワールド座標を取得します。
-  const distance = -camera.position.z / pickRay.direction.z;
-  const worldPos = pickRay.origin.add(pickRay.direction.scale(distance));
+//   // カメラからのレイを特定の距離スケールで拡大して使用します。
+//   // ここでは地面をz = 0の平面と仮定しているため、以下の計算でワールド座標を取得します。
+//   const distance = -camera.position.z / pickRay.direction.z;
+//   const worldPos = pickRay.origin.add(pickRay.direction.scale(distance));
 
-  return worldPos;
-}
+//   return worldPos;
+// }
+const screenToWorld = (x, y) => {
+  const canvasWidth = canvas.width;
+  const canvasHeight = canvas.height;
+
+  // pointerX, pointerY をキャンバス内にクリッピング
+  const clippedX = Math.min(Math.max(scene.pointerX, 0), canvasWidth);
+  const clippedY = Math.min(Math.max(scene.pointerY, 0), canvasHeight);
+
+  // 0~1の範囲に正規化
+  const normalizedX = clippedX / canvasWidth;
+  const normalizedY = clippedY / canvasHeight;
+
+  // NDC (正規化されたデバイス座標) に変換 (-1から1の範囲)
+  const ndcX = normalizedX * 2.0 - 1.0;
+  const ndcY = 1.0 - normalizedY * 2.0; // Y座標は反転
+
+  const invProjectionMatrix = BABYLON.Matrix.Invert(camera.getProjectionMatrix());
+  const invViewMatrix = BABYLON.Matrix.Invert(camera.getViewMatrix());
+
+  // クリップ座標を作成
+  const clipSpace = new BABYLON.Vector4(ndcX, ndcY, 0.8325, 1.0);
+  // クリップ座標をビュー座標に変換
+  const viewSpace = transformCoordinatesCustom(clipSpace, invProjectionMatrix);
+  // ビュー座標系からワールド座標系へ
+  const worldSpace = BABYLON.Vector3.TransformCoordinates(viewSpace.toVector3(), invViewMatrix);
+
+  return worldSpace;
+};
 
 // Pointerdownイベントで描画を開始
 canvas.addEventListener('pointerdown', function (e) {
@@ -343,6 +373,7 @@ canvas.addEventListener('pointermove', function (e) {
   if (isDrawing) {
     if (currentMode === mode.CREATE) {
       const worldPos = screenToWorld(scene.pointerX, scene.pointerY);
+      // console.log(worldPos);
 
       // 一定間隔でのみポイントを追加
       if (
@@ -352,10 +383,12 @@ canvas.addEventListener('pointermove', function (e) {
         points.push(worldPos);
         const x = worldPos.x;
         const y = worldPos.y;
+        const z = worldPos.z;
         const id = arr.length;
         const data = {
           x: x,
           y: y,
+          z: z,
           id: id,
         };
         arr.push(data);
@@ -366,13 +399,6 @@ canvas.addEventListener('pointermove', function (e) {
         lineMesh = BABYLON.MeshBuilder.CreateLines('line', { points: points }, scene);
       }
     } else if (currentMode === mode.PAINT) {
-      const ray = scene.createPickingRay(
-        scene.pointerX,
-        scene.pointerY,
-        BABYLON.Matrix.Identity(),
-        camera
-      );
-      const distantPoint = ray.origin.add(ray.direction.scale(1)); // レイの方向に10単位進んだポイント
       depthCamera.position = camera.position;
       // depthCamera.setTarget(distantPoint);
       depthCamera.setTarget(BABYLON.Vector3.Zero());
@@ -395,14 +421,6 @@ canvas.addEventListener('pointermove', function (e) {
 
       const invProjectionMatrix = BABYLON.Matrix.Invert(camera.getProjectionMatrix());
       const invViewMatrix = BABYLON.Matrix.Invert(camera.getViewMatrix());
-
-      // const matrixArray = invProjectionMatrix.m;
-
-      // for (let i = 0; i < matrixArray.length; i++) {
-      //   if (Object.is(matrixArray[i], -0)) {
-      //     matrixArray[i] = 0;
-      //   }
-      // }
 
       // クリップ座標を作成
       const clipSpace = new BABYLON.Vector4(ndcX, ndcY, -0.5, 1.0);
@@ -432,7 +450,6 @@ canvas.addEventListener('pointerup', function (e) {
   if (currentMode === mode.CREATE) {
     isDrawing = false;
     if (points.length > 1) {
-      // createDelaunayTriangles(arr);
       const cardboard = new Cardboard(arr);
 
       carboards.push(cardboard);
@@ -527,10 +544,9 @@ const debugObj = () => {
   }, 500);
 
   setTimeout(() => {
-    // createDelaunayTriangles(debugPoints);
     cardboard = new Cardboard(debugPoints);
     carboards.push(cardboard);
-  }, 100);
+  }, 250);
 };
 
 //--------------------------------------------------------------------------------------
@@ -572,6 +588,7 @@ gui.addColor(colorFormats, 'string').onChange((value) => {
 // レンダリングループ
 //--------------------------------------------------------------------------------------
 // Render every frame
+debugObj();
 engine.runRenderLoop(() => {
   paintScene.render();
   scene.render();

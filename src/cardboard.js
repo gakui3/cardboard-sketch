@@ -154,7 +154,7 @@ export class Cardboard {
     this.vertices = [];
     this.indices = [];
     for (let i = 0; i < contour.length; i++) {
-      this.vertices.push(contour[i].x, contour[i].y, 1);
+      this.vertices.push(contour[i].x, contour[i].y, contour[i].z);
     }
     for (let i = 0; i < this.triangles.length; i++) {
       this.indices.push(this.triangles[i].getPoint(0).id);
@@ -172,7 +172,7 @@ export class Cardboard {
     // drawVertexIds(vertices);
 
     // ---------- 重心の計算と描画 ----------
-    this.calculateCentroid(this.vertices, this.indices);
+    // this.calculateCentroid(this.vertices, this.indices);
     // drawCentroidIds();
 
     // clipCentroidLine(contour);
@@ -273,6 +273,7 @@ export class Cardboard {
     //normalの計算
     const normals = [];
     BABYLON.VertexData.ComputeNormals(margedVertices, margedIndices, normals);
+    this.faceNormal = new BABYLON.Vector3(normals[0], normals[1], normals[2]);
 
     const vertexData = new BABYLON.VertexData();
     vertexData.positions = margedVertices;
