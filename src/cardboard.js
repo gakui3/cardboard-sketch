@@ -202,11 +202,25 @@ export class Cardboard {
     const margedIndices = [...indices];
     const verticesLength = vertices.length / 3;
 
+    const nor = [];
+    BABYLON.VertexData.ComputeNormals(vertices, indices, nor);
+    this.faceNormal = new BABYLON.Vector3(nor[0], nor[1], nor[2]).normalize();
+
+    // for (let i = 0; i < 2; i++) {
+    //   for (let k = 0; k < vertices.length; k++) {
+    //     const p = (k + 1) % 3 == 0 ? vertices[k] + thickness * i : vertices[k];
+    //     // const p = vertices[k];
+    //     margedVertices.push(p);
+    //   }
+    // }
     for (let i = 0; i < 2; i++) {
-      for (let k = 0; k < vertices.length; k++) {
-        const p = (k + 1) % 3 == 0 ? vertices[k] + thickness * i : vertices[k];
+      for (let k = 0; k < vertices.length; k += 3) {
+        //   const p = (k + 1) % 3 == 0 ? vertices[k] + thickness * i : vertices[k];
+        const vert = new BABYLON.Vector3(vertices[k], vertices[k + 1], vertices[k + 2]);
+        vert.addInPlace(this.faceNormal.scale(thickness * i));
         // const p = vertices[k];
-        margedVertices.push(p);
+        //   margedVertices.push(p);
+        margedVertices.push(vert.x, vert.y, vert.z);
       }
     }
 
@@ -273,7 +287,6 @@ export class Cardboard {
     //normalの計算
     const normals = [];
     BABYLON.VertexData.ComputeNormals(margedVertices, margedIndices, normals);
-    this.faceNormal = new BABYLON.Vector3(normals[0], normals[1], normals[2]);
 
     const vertexData = new BABYLON.VertexData();
     vertexData.positions = margedVertices;
@@ -441,17 +454,32 @@ export class Cardboard {
     const indices = [];
 
     //頂点をpush
+    // for (let i = 0; i < 2; i++) {
+    //   for (let k = 0; k < vertices.length; k++) {
+    //     if ((k + 1) % 3 === 0) {
+    //       mergedVertices.push(vertices[k] + thickness * i);
+    //     } else {
+    //       mergedVertices.push(vertices[k]);
+    //     }
+    //     if (k === vertices.length - 1) {
+    //       mergedVertices.push(vertices[0]);
+    //       mergedVertices.push(vertices[1]);
+    //       mergedVertices.push(vertices[2] + thickness * i);
+    //       break;
+    //     }
+    //   }
+    // }
+
     for (let i = 0; i < 2; i++) {
-      for (let k = 0; k < vertices.length; k++) {
-        if ((k + 1) % 3 === 0) {
-          mergedVertices.push(vertices[k] + thickness * i);
-        } else {
-          mergedVertices.push(vertices[k]);
-        }
-        if (k === vertices.length - 1) {
-          mergedVertices.push(vertices[0]);
-          mergedVertices.push(vertices[1]);
-          mergedVertices.push(vertices[2] + thickness * i);
+      for (let k = 0; k < vertices.length; k += 3) {
+        const vert = new BABYLON.Vector3(vertices[k], vertices[k + 1], vertices[k + 2]);
+        vert.addInPlace(this.faceNormal.scale(thickness * i));
+        mergedVertices.push(vert.x, vert.y, vert.z);
+
+        if (k === vertices.length - 3) {
+          const vert = new BABYLON.Vector3(vertices[0], vertices[1], vertices[2]);
+          vert.addInPlace(this.faceNormal.scale(thickness * i));
+          mergedVertices.push(vert.x, vert.y, vert.z);
           break;
         }
       }
